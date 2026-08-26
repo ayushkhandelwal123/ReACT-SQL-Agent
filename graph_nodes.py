@@ -9,14 +9,16 @@ two things:
   2. Each step gets its own tailored prompt.
 
 Flow: list_tables -> call_get_schema -> get_schema -> generate_query
-      -> (check_query -> run_query -> generate_query) loop until done.
+      -> (check_query -> human_review -> run_query -> generate_query) loop
+      until done. human_review pauses for approval before anything runs.
 """
 
 from typing import Literal
 
-from langchain.messages import AIMessage
+from langchain.messages import AIMessage, ToolMessage
 from langgraph.graph import END, MessagesState
 from langgraph.prebuilt import ToolNode
+from langgraph.types import Command, interrupt
 
 from config import get_llm
 from db_tools import TOOLS
@@ -164,3 +166,47 @@ def should_continue(state: MessagesState) -> Literal["check_query", "__end__"]:
     if not last_message.tool_calls:
         return END
     return "check_query"
+
+
+def human_review(state: MessagesState) -> Command[Literal["run_query", "generate_query"]]:
+    """Pause right before the checked query touches the database, and ask a
+    human to approve, edit, or reject it.
+
+    interrupt() halts execution HERE. The graph's state is checkpointed and
+    control returns to whatever called .stream()/.invoke() — that call
+    simply stops producing new output. Nothing continues until the caller
+    resumes with Command(resume=<decision>), using the SAME thread_id.
+
+    Critical detail: when resumed, this function re-runs from the top. The
+    two lines before interrupt() just re-read state (harmless to repeat).
+    Everything that matters — the actual routing decision — happens after
+    interrupt() returns the human's decision.
+    """
+    last_message = state["messages"][-1]
+    tool_call = last_message.tool_calls[0]
+    query = tool_call["args"]["query"]
+
+    decision = interrupt({"type": "approval_request", "query": query})
+    action = decision.get("action", "approve")
+
+    if action == "reject":
+        reason = decision.get("reason") or "Rejected by reviewer."
+        reject_message = ToolMessage(
+            content=(
+                f"Query rejected by human reviewer: {reason}. "
+                "Write a different query, or ask the user a clarifying "
+                "question instead of querying."
+            ),
+            tool_call_id=tool_call["id"],
+        )
+        return Command(goto="generate_query", update={"messages": [reject_message]})
+
+    if action == "edit":
+        # Mutate the existing tool call in place, then re-submit it under
+        # the SAME message id — MessagesState's reducer treats that as an
+        # update to the existing message rather than a new one appended.
+        last_message.tool_calls[0]["args"]["query"] = decision["query"]
+        return Command(goto="run_query", update={"messages": [last_message]})
+
+    # action == "approve" (the default if the caller sends nothing else)
+    return Command(goto="run_query")

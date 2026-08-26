@@ -3,3 +3,5 @@ langgraph
 langchain-ollama
 langsmith
 python-dotenv
+fastapi
+uvicorn[standard]
