@@ -66,8 +66,14 @@ export async function streamRequest(path, body, onEvent) {
   }
 }
 
-export function askStream(question, onEvent) {
-  return streamRequest("/ask/stream", { question }, onEvent);
+export function askStream(question, threadId, onEvent) {
+  // No thread_id on the very first question — the backend creates one and
+  // hands it back in every event. Every question after that passes it
+  // along, which is what makes this an actual multi-turn conversation
+  // instead of N unrelated single questions: the checkpointer on the
+  // backend keeps appending to the SAME message history for that thread_id.
+  const body = threadId ? { question, thread_id: threadId } : { question };
+  return streamRequest("/ask/stream", body, onEvent);
 }
 
 export function reviewStream(threadId, decision, onEvent) {
