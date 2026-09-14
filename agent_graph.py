@@ -4,7 +4,7 @@ agent_graph.py
 Wires the node functions from graph_nodes.py into a StateGraph and compiles
 it into a runnable agent.
 
-Now includes a checkpointer. This is required for the human_review step:
+Includes a checkpointer. This is required for the human_review step:
 interrupt()/Command(resume=...) only work when LangGraph can persist and
 reload the paused state — that persistence IS the checkpointer.
 InMemorySaver is fine for local dev (state lives only as long as the

@@ -1,0 +1,448 @@
+/* ---------------------------------------------------------------------
+   Design tokens
+   Grounded in the subject: an agent that runs a music-store database
+   through a step-by-step signal chain, with a physical "hold" point at
+   human review. Palette is a cool steel/graphite studio surface (not the
+   generic warm-cream or near-black-with-one-accent defaults) with a
+   copper/amber signal accent and a deep teal secondary.
+------------------------------------------------------------------------ */
+:root {
+  --bg: #e7e9ec;
+  --panel: #ffffff;
+  --panel-muted: #f4f5f7;
+  --border: #d3d6dc;
+  --ink: #14161a;
+  --ink-muted: #5b6472;
+
+  --accent: #e8871e; /* signal amber — the signature color, used sparingly */
+  --accent-ink: #7a4106;
+  --teal: #0f8b8d; /* secondary — tool/schema/info steps */
+  --teal-ink: #0a5a5b;
+  --success: #1c8a5b;
+  --success-ink: #0f5c3c;
+  --danger: #b23a3a;
+  --danger-ink: #7a2727;
+
+  --font-display: "Archivo", sans-serif;
+  --font-eyebrow: "Barlow Condensed", sans-serif;
+  --font-body: "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", monospace;
+
+  --radius: 10px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+}
+
+.console {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ---------- Header ---------- */
+
+.console-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.wordmark {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.wordmark-main {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.02em;
+}
+
+.wordmark-sub {
+  font-family: var(--font-eyebrow);
+  font-weight: 500;
+  font-size: 15px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+}
+
+.status-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-eyebrow);
+  font-size: 14px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--panel);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ink-muted);
+}
+
+.status-running .status-dot {
+  background: var(--accent);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.status-awaiting_review .status-dot {
+  background: var(--accent);
+}
+
+.status-done .status-dot {
+  background: var(--success);
+}
+
+.status-error .status-dot {
+  background: var(--danger);
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(1.3);
+  }
+}
+
+/* ---------- Ask bar ---------- */
+
+.ask-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 10px 14px;
+}
+
+.ask-prompt {
+  font-family: var(--font-mono);
+  font-size: 18px;
+  color: var(--accent);
+}
+
+.ask-input {
+  flex: 1;
+  border: none;
+  outline: none;
+  background: transparent;
+  font-family: var(--font-body);
+  font-size: 15px;
+  color: var(--ink);
+}
+
+.ask-input::placeholder {
+  color: var(--ink-muted);
+}
+
+.ask-button {
+  font-family: var(--font-eyebrow);
+  font-size: 15px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 18px;
+  background: var(--ink);
+  color: var(--panel);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.ask-button:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.ask-button:disabled {
+  background: var(--border);
+  color: var(--ink-muted);
+  cursor: not-allowed;
+}
+
+/* ---------- Error banner ---------- */
+
+.error-banner {
+  background: #f7e6e6;
+  border: 1px solid var(--danger);
+  color: var(--danger-ink);
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  font-size: 14px;
+}
+
+/* ---------- Signal chain ---------- */
+
+.chain {
+  display: flex;
+  flex-direction: column;
+}
+
+.chain-empty {
+  color: var(--ink-muted);
+  font-size: 14px;
+  padding: 24px 4px;
+  text-align: center;
+}
+
+.chain-row {
+  display: flex;
+  gap: 14px;
+}
+
+.chain-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 16px;
+  flex-shrink: 0;
+}
+
+.chain-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 18px;
+  flex-shrink: 0;
+  background: var(--ink-muted);
+}
+
+.chain-wire {
+  flex: 1;
+  width: 2px;
+  background: var(--border);
+  margin-top: 4px;
+}
+
+.dot-ai {
+  background: var(--teal);
+}
+
+.dot-tool {
+  background: var(--ink-muted);
+}
+
+.dot-human {
+  background: var(--accent);
+}
+
+.dot-hold {
+  background: var(--panel);
+  border: 2px solid var(--accent);
+  animation: pulse 1.1s ease-in-out infinite;
+}
+
+.dot-answer {
+  background: var(--success);
+}
+
+.channel {
+  flex: 1;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 14px;
+  animation: rise 0.25s ease;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.channel-eyebrow {
+  font-family: var(--font-eyebrow);
+  font-size: 13px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+}
+
+.channel-content {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+
+.channel-code {
+  margin: 8px 0 0;
+  background: var(--panel-muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--teal-ink);
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.channel-tool .channel-eyebrow {
+  color: var(--teal-ink);
+}
+
+/* ---------- Hold / review channel ---------- */
+
+.channel-hold {
+  border-color: var(--accent);
+  background: #fff6ea;
+}
+
+.channel-hold .channel-eyebrow {
+  color: var(--accent-ink);
+}
+
+.hold-editor {
+  width: 100%;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  resize: vertical;
+}
+
+.hold-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  font-family: var(--font-eyebrow);
+  font-size: 14px;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  border-radius: 7px;
+  padding: 8px 14px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: opacity 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn-approve {
+  background: var(--success);
+  color: #fff;
+}
+
+.btn-edit {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-reject {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--danger-ink);
+}
+
+/* ---------- Final answer ---------- */
+
+.channel-answer {
+  border-color: var(--success);
+  background: #f1f8f4;
+}
+
+.channel-answer .channel-eyebrow {
+  color: var(--success-ink);
+}
+
+.answer-text {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 16px;
+  color: var(--ink);
+}
+
+/* ---------- Responsive ---------- */
+
+@media (max-width: 480px) {
+  .console {
+    padding: 20px 12px 48px;
+  }
+  .wordmark-main {
+    font-size: 18px;
+  }
+  .hold-actions {
+    flex-direction: column;
+  }
+  .btn {
+    width: 100%;
+  }
+}
+
+/* ---------- Accessibility ---------- */
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-dot,
+  .dot-hold,
+  .channel {
+    animation: none !important;
+  }
+}

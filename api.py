@@ -13,13 +13,17 @@ HTTP call get resumed correctly by a LATER call, as long as both carry the
 same thread_id — each request is otherwise stateless, same as any web API.
 
 Endpoints:
-  POST /ask                 - ask a new question (creates a thread_id if
-                               you don't supply one)
-  POST /review/{thread_id}  - approve / edit / reject a pending query and
-                               continue
+  POST /ask                 - ask a new question, wait for the full result
+  POST /review/{thread_id}  - approve / edit / reject a pending query, wait
+                               for the full result
+  POST /ask/stream          - same as /ask, but streamed as Server-Sent
+                               Events so the frontend can show each agent
+                               step as it happens
+  POST /review/{thread_id}/stream - streamed version of /review
   GET  /health               - liveness check
 """
 
+import json
 import uuid
 from typing import Literal, Optional
 
@@ -29,6 +33,7 @@ load_dotenv()
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from langgraph.types import Command
 
@@ -118,3 +123,87 @@ def review(thread_id: str, request: ReviewRequest):
         decision["reason"] = request.reason
 
     return _run_until_pause(Command(resume=decision), thread_id)
+
+
+def _sse(data: dict) -> str:
+    """Format one Server-Sent Event. Two trailing newlines is the SSE
+    wire-format delimiter that marks the end of an event."""
+    return f"data: {json.dumps(data, default=str)}\n\n"
+
+
+def _message_to_event_fields(msg) -> dict:
+    return {
+        "role": msg.type,  # "human" | "ai" | "tool"
+        "content": msg.content,
+        "tool_calls": getattr(msg, "tool_calls", None) or [],
+        "name": getattr(msg, "name", None),
+    }
+
+
+def _stream_graph(stream_input, thread_id: str):
+    """Generator that drives the graph forward and yields one SSE event per
+    node update, using stream_mode='updates' so each event is tagged with
+    exactly which node produced it (values mode only gives full state
+    snapshots, with no way to tell which node just ran).
+    """
+    config = {"configurable": {"thread_id": thread_id}}
+    try:
+        for update in agent.stream(stream_input, config=config, stream_mode="updates"):
+            if "__interrupt__" in update:
+                payload = update["__interrupt__"][0].value
+                yield _sse(
+                    {"event": "interrupt", "thread_id": thread_id, "query": payload["query"]}
+                )
+                return
+
+            for node_name, node_output in update.items():
+                # A Command(goto=...) with no `update=` (e.g. a plain
+                # approve) contributes no state change, so node_output is
+                # None here — nothing to stream for that node.
+                if not node_output:
+                    continue
+                for msg in node_output.get("messages", []):
+                    yield _sse(
+                        {
+                            "event": "step",
+                            "thread_id": thread_id,
+                            "node": node_name,
+                            **_message_to_event_fields(msg),
+                        }
+                    )
+
+        # Loop finished without ever hitting an interrupt -> graph reached END.
+        final_state = agent.get_state(config)
+        last_message = final_state.values["messages"][-1]
+        yield _sse({"event": "done", "thread_id": thread_id, "answer": last_message.content})
+    except Exception as e:
+        yield _sse({"event": "error", "thread_id": thread_id, "detail": str(e)})
+
+
+@app.post("/ask/stream")
+def ask_stream(request: AskRequest):
+    thread_id = request.thread_id or str(uuid.uuid4())
+    stream_input = {"messages": [{"role": "user", "content": request.question}]}
+    return StreamingResponse(_stream_graph(stream_input, thread_id), media_type="text/event-stream")
+
+
+@app.post("/review/{thread_id}/stream")
+def review_stream(thread_id: str, request: ReviewRequest):
+    state = agent.get_state({"configurable": {"thread_id": thread_id}})
+    if not state.next:
+        raise HTTPException(
+            status_code=400,
+            detail="No pending review for this thread_id (already finished, or unknown).",
+        )
+
+    decision: dict = {"action": request.action}
+    if request.action == "edit":
+        if not request.query:
+            raise HTTPException(status_code=400, detail="query is required when action='edit'")
+        decision["query"] = request.query
+    if request.action == "reject" and request.reason:
+        decision["reason"] = request.reason
+
+    return StreamingResponse(
+        _stream_graph(Command(resume=decision), thread_id), media_type="text/event-stream"
+    )

@@ -145,8 +145,8 @@ def check_query(state: MessagesState):
     Must end in a tool call to run_query_tool (either the original query or
     a corrected one) — same tool_choice caveat as call_get_schema applies,
     so the retry helper enforces it. This is the 'basic' safety net; the
-    human-in-the-loop version you'll add later replaces (or supplements) this
-    with an actual human approval step."""
+    human-in-the-loop version replaces (or supplements) this with an actual
+    human approval step."""
     system_message = {"role": "system", "content": CHECK_QUERY_PROMPT}
     tool_call = state["messages"][-1].tool_calls[0]
     user_message = {"role": "user", "content": tool_call["args"]["query"]}
