@@ -45,13 +45,60 @@ def _get_tavily_client() -> TavilyClient:
     return _client
 
 
-def search_web(query: str, max_results: int = DEFAULT_MAX_RESULTS) -> list[dict]:
+# Kept as simple, inspectable keyword lists rather than an LLM classification
+# call — cheap, fast, and easy to extend by just adding a phrase, without
+# adding another model round-trip to every search.
+_NEWS_KEYWORDS = ("news", "headline", "headlines")
+_RECENCY_TO_TIME_RANGE = [
+    (("last 24 hours", "past 24 hours", "today", "this morning", "tonight", "right now"), "day"),
+    (("last week", "past week", "this week"), "week"),
+    (("last month", "past month", "this month"), "month"),
+]
+_GENERAL_RECENCY_KEYWORDS = ("latest", "current", "recent", "breaking", "now")
+
+
+def _infer_search_params(query: str) -> dict:
+    """Map obviously time-sensitive phrasing to Tavily's `topic`/`time_range`
+    parameters. Without this, a query like "top news in the last 24 hours"
+    gets treated as a plain keyword search and Tavily returns generic outlet
+    homepages (cnn.com, apnews.com, ...) instead of actual dated articles —
+    the homepages don't contain real headlines in their snippet text, so the
+    synthesis step correctly refuses to invent any (see answer_from_web),
+    but the underlying search never had a chance to find real news either.
+
+    Explicit topic/time_range passed by the caller always win — see
+    search_web()'s **overrides.
+    """
+    q = query.lower()
+    params: dict = {}
+
+    if any(kw in q for kw in _NEWS_KEYWORDS):
+        params["topic"] = "news"
+
+    for phrases, time_range in _RECENCY_TO_TIME_RANGE:
+        if any(p in q for p in phrases):
+            params["time_range"] = time_range
+            break
+    else:
+        if any(w in q for w in _GENERAL_RECENCY_KEYWORDS):
+            params["time_range"] = "week"
+
+    return params
+
+
+def search_web(query: str, max_results: int = DEFAULT_MAX_RESULTS, **overrides) -> list[dict]:
     """Run a Tavily search and return up to `max_results` results, each a
     dict with (at least) 'title', 'url', and 'content' — 'content' is a
     relevance-ranked snippet Tavily already extracted for us, not the raw
-    page, which is exactly what we want to hand to the synthesis prompt."""
+    page, which is exactly what we want to hand to the synthesis prompt.
+
+    `**overrides` lets a caller force topic/time_range/etc. explicitly,
+    taking priority over what _infer_search_params() guesses.
+    """
     client = _get_tavily_client()
-    response = client.search(query=query, max_results=max_results, search_depth="advanced")
+    params = _infer_search_params(query)
+    params.update(overrides)
+    response = client.search(query=query, max_results=max_results, search_depth="advanced", **params)
     return response.get("results", []) or []
 
 
