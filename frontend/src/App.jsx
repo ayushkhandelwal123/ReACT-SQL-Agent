@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { askStream, reviewStream } from "./api";
+import { askStream, reviewStream, webSearchStream } from "./api";
 import "./styles.css";
 
 // Maps a graph node name to the short label shown as each channel's eyebrow.
@@ -13,6 +13,7 @@ const STAGE_LABELS = {
   check_query: "Check",
   human_review: "Review",
   run_query: "Result",
+  web_search: "Search",
 };
 
 const STATUS_TEXT = {
@@ -23,13 +24,15 @@ const STATUS_TEXT = {
   error: "Error",
 };
 
-function newTurn(question) {
+function newTurn(question, mode) {
   return {
     question,
+    mode,
     steps: [],
     pendingQuery: null,
     editedQuery: "",
     finalAnswer: null,
+    sources: [],
     status: "running",
     error: null,
   };
@@ -37,6 +40,7 @@ function newTurn(question) {
 
 export default function App() {
   const [question, setQuestion] = useState("");
+  const [mode, setMode] = useState("sql"); // "sql" | "web"
   const [turns, setTurns] = useState([]);
   const [threadId, setThreadId] = useState(null);
   const bottomRef = useRef(null);
@@ -73,32 +77,51 @@ export default function App() {
     });
   }
 
-  function handleEvent(data) {
-    if (data.event === "step") {
-      updateLastTurn((t) => ({ ...t, steps: [...t.steps, data] }));
-    } else if (data.event === "interrupt") {
-      setThreadId(data.thread_id);
-      updateLastTurn((t) => ({
-        ...t,
-        pendingQuery: data.query,
-        editedQuery: data.query,
-        status: "awaiting_review",
-      }));
-    } else if (data.event === "done") {
-      setThreadId(data.thread_id);
-      updateLastTurn((t) => ({ ...t, finalAnswer: data.answer, status: "done" }));
-    } else if (data.event === "error") {
-      updateLastTurn((t) => ({ ...t, status: "error", error: data.detail }));
-    }
+  // Returns an event handler bound to a specific mode, captured at the
+  // moment the request was sent — NOT read from component state inside
+  // the handler, which would risk a stale closure since `turns` may have
+  // moved on by the time an async SSE event arrives.
+  function makeEventHandler(mode) {
+    return (data) => {
+      if (data.event === "step") {
+        updateLastTurn((t) => ({ ...t, steps: [...t.steps, data] }));
+      } else if (data.event === "interrupt") {
+        // Only the SQL agent ever emits "interrupt" — web search has no
+        // review step — but the mode check keeps that assumption explicit.
+        if (mode === "sql") setThreadId(data.thread_id);
+        updateLastTurn((t) => ({
+          ...t,
+          pendingQuery: data.query,
+          editedQuery: data.query,
+          status: "awaiting_review",
+        }));
+      } else if (data.event === "done") {
+        if (mode === "sql") setThreadId(data.thread_id);
+        updateLastTurn((t) => ({
+          ...t,
+          finalAnswer: data.answer,
+          sources: data.sources || [],
+          status: "done",
+        }));
+      } else if (data.event === "error") {
+        updateLastTurn((t) => ({ ...t, status: "error", error: data.detail }));
+      }
+    };
   }
 
   async function askQuestion() {
     const q = question.trim();
     if (!q || isBusy) return;
+    const currentMode = mode;
     setQuestion("");
-    setTurns((prev) => [...prev, newTurn(q)]);
+    setTurns((prev) => [...prev, newTurn(q, currentMode)]);
+    const handleEvent = makeEventHandler(currentMode);
     try {
-      await askStream(q, threadId, handleEvent);
+      if (currentMode === "web") {
+        await webSearchStream(q, handleEvent);
+      } else {
+        await askStream(q, threadId, handleEvent);
+      }
     } catch (err) {
       updateLastTurn((t) => ({ ...t, status: "error", error: err.message }));
     } finally {
@@ -112,7 +135,7 @@ export default function App() {
     if (action === "edit") decision.query = lastTurn.editedQuery;
     updateLastTurn((t) => ({ ...t, pendingQuery: null, status: "running" }));
     try {
-      await reviewStream(threadId, decision, handleEvent);
+      await reviewStream(threadId, decision, makeEventHandler("sql"));
     } catch (err) {
       updateLastTurn((t) => ({ ...t, status: "error", error: err.message }));
     }
@@ -147,8 +170,9 @@ export default function App() {
       <div className="conversation">
         {turns.length === 0 && (
           <div className="chain-empty">
-            Ask a question about the music store database to start a conversation.
-            Follow-ups keep the same context — no need to repeat yourself.
+            Ask about the music store database, or switch to Web Search below for
+            current, internet-based information. Follow-ups in Database mode keep
+            the same context — no need to repeat yourself.
           </div>
         )}
 
@@ -161,7 +185,9 @@ export default function App() {
             <div className="turn" key={ti}>
               <div className="turn-question">
                 <p className="turn-question-text">{turn.question}</p>
-                <span className="turn-question-tag">In</span>
+                <span className="turn-question-tag">
+                  {turn.mode === "web" ? "Web search" : "Database"}
+                </span>
               </div>
 
               <div className="chain">
@@ -228,6 +254,22 @@ export default function App() {
                     <div className="channel channel-answer">
                       <div className="channel-eyebrow">Answer</div>
                       <p className="channel-content answer-text">{turn.finalAnswer}</p>
+                      {turn.sources.length > 0 && (
+                        <div className="sources-list">
+                          <div className="sources-label">Sources</div>
+                          {turn.sources.map((s, si) => (
+                            <a
+                              key={si}
+                              className="source-link"
+                              href={s.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              {s.title || s.url}
+                            </a>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -243,6 +285,25 @@ export default function App() {
         <div ref={bottomRef} />
       </div>
 
+      <div className="mode-toggle" role="tablist" aria-label="Question mode">
+        <button
+          className={`mode-btn ${mode === "sql" ? "mode-active" : ""}`}
+          onClick={() => setMode("sql")}
+          role="tab"
+          aria-selected={mode === "sql"}
+        >
+          Database
+        </button>
+        <button
+          className={`mode-btn ${mode === "web" ? "mode-active" : ""}`}
+          onClick={() => setMode("web")}
+          role="tab"
+          aria-selected={mode === "web"}
+        >
+          Web Search
+        </button>
+      </div>
+
       <div className="ask-bar">
         <span className="ask-prompt">&rsaquo;</span>
         <input
@@ -251,7 +312,15 @@ export default function App() {
           value={question}
           onChange={(e) => setQuestion(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && askQuestion()}
-          placeholder={turns.length === 0 ? "Ask about the music store database…" : "Ask a follow-up…"}
+          placeholder={
+            mode === "web"
+              ? turns.length === 0
+                ? "Search the web for current information…"
+                : "Ask another web search…"
+              : turns.length === 0
+                ? "Ask about the music store database…"
+                : "Ask a follow-up…"
+          }
           disabled={isBusy}
         />
         <button className="ask-button" onClick={askQuestion} disabled={isBusy || !question.trim()}>

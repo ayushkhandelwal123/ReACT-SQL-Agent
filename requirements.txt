@@ -5,3 +5,4 @@ langsmith
 python-dotenv
 fastapi
 uvicorn[standard]
+tavily-python

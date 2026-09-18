@@ -79,3 +79,10 @@ export function askStream(question, threadId, onEvent) {
 export function reviewStream(threadId, decision, onEvent) {
   return streamRequest(`/review/${threadId}/stream`, decision, onEvent);
 }
+
+// Stateless — no thread_id involved. Each web search question is an
+// independent search + synthesize call on the backend, unrelated to the
+// SQL agent's conversation history.
+export function webSearchStream(question, onEvent) {
+  return streamRequest("/websearch/stream", { question }, onEvent);
+}

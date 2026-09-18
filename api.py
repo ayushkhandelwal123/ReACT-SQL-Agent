@@ -38,6 +38,7 @@ from pydantic import BaseModel
 from langgraph.types import Command
 
 from agent_graph import build_agent
+from web_search import answer_from_web
 
 app = FastAPI(title="Chinook SQL Agent API")
 
@@ -206,4 +207,54 @@ def review_stream(thread_id: str, request: ReviewRequest):
 
     return StreamingResponse(
         _stream_graph(Command(resume=decision), thread_id), media_type="text/event-stream"
+    )
+
+
+# ---------------------------------------------------------------------
+# Web search — independent of the SQL agent above. No thread_id/checkpoint
+# involved: each question is a single, stateless search + synthesize call,
+# reusing web_search.py so this endpoint stays a thin adapter over it.
+# ---------------------------------------------------------------------
+
+
+class WebSearchRequest(BaseModel):
+    question: str
+
+
+def _stream_web_search(question: str):
+    """Two SSE events: one 'step' so the frontend can show a searching
+    indicator (reusing the same chain UI as the SQL agent), then 'done'
+    with the synthesized answer and sources — or 'error' if Tavily/the LLM
+    call itself fails (missing API key, network issue, etc.)."""
+    request_id = str(uuid.uuid4())
+    try:
+        yield _sse(
+            {
+                "event": "step",
+                "thread_id": request_id,
+                "node": "web_search",
+                "role": "tool",
+                "content": f'Searching the web for: "{question}"',
+                "tool_calls": [],
+            }
+        )
+
+        result = answer_from_web(question)
+
+        yield _sse(
+            {
+                "event": "done",
+                "thread_id": request_id,
+                "answer": result["answer"],
+                "sources": result["sources"],
+            }
+        )
+    except Exception as e:
+        yield _sse({"event": "error", "thread_id": request_id, "detail": str(e)})
+
+
+@app.post("/websearch/stream")
+def websearch_stream(request: WebSearchRequest):
+    return StreamingResponse(
+        _stream_web_search(request.question), media_type="text/event-stream"
     )

@@ -222,6 +222,42 @@ body {
   flex-shrink: 0;
 }
 
+/* ---------- Mode toggle ---------- */
+
+.mode-toggle {
+  flex-shrink: 0;
+  display: inline-flex;
+  gap: 2px;
+  background: var(--panel-muted);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 3px;
+  align-self: flex-start;
+}
+
+.mode-btn {
+  font-family: var(--font-eyebrow);
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  border-radius: 999px;
+  padding: 6px 14px;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.mode-btn:hover:not(.mode-active) {
+  color: var(--ink);
+}
+
+.mode-btn.mode-active {
+  background: var(--ink);
+  color: var(--panel);
+}
+
 /* ---------- Ask bar ---------- */
 
 .ask-bar {
@@ -498,6 +534,36 @@ body {
   font-weight: 600;
   font-size: 16px;
   color: var(--ink);
+}
+
+.sources-list {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sources-label {
+  font-family: var(--font-eyebrow);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin-bottom: 2px;
+}
+
+.source-link {
+  font-family: var(--font-body);
+  font-size: 13px;
+  color: var(--teal-ink);
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.source-link:hover {
+  text-decoration: underline;
 }
 
 /* ---------- Responsive ---------- */
